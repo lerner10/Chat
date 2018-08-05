@@ -12,13 +12,22 @@ from email.MIMEText import MIMEText
 SPECIAL_SIGN = "^"
 PORT_NUMBER = 8820
 
+food_room_users = []
+sport_room_users = []
+gaming_room_users = []
+movies_room_users = []
 
-def sending_to_client(server_socket, parameters):
+
+def sending_to_client(client_socket, parameters):
     data = ""
     for parameter in parameters:
         data += str(parameter) + SPECIAL_SIGN
     print "send to the client: " + data
-    server_socket.send(data)
+    try:
+        client_socket.send(data)
+    except Exception, ex:
+        print 'while trying to send message to client, he was disconnected.\n error: {0}'.format(ex.strerror)
+
 
 
 def request_to_parameters(request_content):
@@ -165,7 +174,32 @@ def change_password(parameters, server_socket):
 
 
 def send_message(parameters, server_socket):
-    pass
+    room_name, username, message = parameters[1:]
+    room_to_send = get_room_by_name(room_name)
+    send_message_to_all_users_in_room(room_to_send, ['user_message', username, message])
+
+def join_room(parameters, user_socket):
+    room_name, username = parameters[1:]
+    room_to_add = get_room_by_name(room_name)
+    if room_to_add is not None:
+        room_to_add.append((username, user_socket))
+        send_message_to_all_users_in_room(room_to_add, ['user_join', username])
+
+
+def get_room_by_name(room_name):
+    if room_name == "food":
+        return food_room_users
+    elif room_name == "movies":
+        return movies_room_users
+    elif room_name == 'gaming':
+        return gaming_room_users
+    elif room_name == 'sport':
+        return sport_room_users
+    return None
+
+def send_message_to_all_users_in_room(room_to_send, message_parameters):
+    for (current_username, current_user_socket) in room_to_send:
+        sending_to_client(current_user_socket, message_parameters)
 
 
 # Reference the request to its purpose
@@ -183,6 +217,8 @@ def handle_request(wlist, requests):
             change_password(parameters, sender_client_socket)
         elif parameters[0] == 'send_message':
             send_message(parameters, sender_client_socket)
+        elif parameters[0] == 'join_room':
+            join_room(parameters, sender_client_socket)
         requests.remove(current_request)
 
 
@@ -201,13 +237,20 @@ def main():
                 (new_socket, address) = server_socket.accept()
                 open_client_sockets.append(new_socket)
             else:
-                data = current_socket.recv(1024)
-                if data == "":
+                try:
+                    data = current_socket.recv(1024)
+                    # If the client has disconnected
+                    if data == "":
+                        open_client_sockets.remove(current_socket)
+                        print "Connection with client closed"
+                    else:
+                        print 'recieve from client: ', data
+                        requests.append((current_socket, data))
+                except Exception, ex:
+                    print ex.strerror
                     open_client_sockets.remove(current_socket)
-                    print "Connection with client closed"
-                else:
-                    print 'recieve from client: ', data
-                    requests.append((current_socket, data))
+                    pass
+
         handle_request(wlist, requests)
 
 

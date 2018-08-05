@@ -2,16 +2,43 @@ from Tkinter import *
 import socket
 
 # The dimensions of the windows
+from threading import Thread
+
 SCREEN_SETTINGS = "607x530+400+100"
 # The Title of the windows
 SCREEN_TITLE = "Chat"
 SCREEN_COLOUR = "dodger blue"
 SPECIAL_SIGN = "^"
 PORT_NUMBER = 8820
+BUFFER_SIZE = 1024
 login_screen = None
 register_screen = None
 forgot_password_screen = None
 join_room_screen = None
+
+# Open room window
+def receive():
+    def handle_mesage_from_server(message):
+        global room_screen
+        message_parameters = response_to_parameters(message)
+
+        if len(message_parameters) == 0:
+            return
+
+        message_type = message_parameters[0]
+        if message_type == 'user_message':
+            pass
+        elif message_type == 'user_join':
+            # lbl_title.configure(text='{0} has join the room'.format(message_parameters[1]))
+            pass
+
+    while True:
+        try:
+            # msg = my_socket.recv(BUFFER_SIZE).decode("utf8")
+            message = my_socket.recv(BUFFER_SIZE)
+            handle_mesage_from_server(message)
+        except OSError:  # Possibly client has left the chat.
+            break
 room_screen = None
 my_socket = None
 code_for_reset_password = ''
@@ -68,7 +95,7 @@ def sending_to_server(parameters):
     data = ""
     for parameter in parameters:
         data += parameter + SPECIAL_SIGN
-    print "send to the server: " + data
+    print "sending to the server the following message: {0}".format(data)
     my_socket.send(data)
 
 
@@ -81,7 +108,7 @@ def login_window():
     def login(parameters):
         username = parameters[1]
         sending_to_server(parameters)
-        response = my_socket.recv(1024)
+        response = my_socket.recv(BUFFER_SIZE)
         print 'recieve from server: ', response
         parameters = response_to_parameters(response)
         validate, error_msg = parameters
@@ -147,7 +174,7 @@ def forgot_password_window():
     def send_email(parameters):
         global code_for_reset_password
         sending_to_server(parameters)
-        response = my_socket.recv(1024)
+        response = my_socket.recv(BUFFER_SIZE)
         parameters = response_to_parameters(response)
         text = parameters[0]
 
@@ -179,7 +206,7 @@ def forgot_password_window():
 
     def change_password(parameters):
         sending_to_server(parameters)
-        response = my_socket.recv(1024)
+        response = my_socket.recv(BUFFER_SIZE)
         print 'recieve from server: ', response
 
         parameters = response_to_parameters(response)
@@ -243,7 +270,7 @@ def registration_window():
     # Register command
     def register(parameters):
         sending_to_server(parameters)
-        response = my_socket.recv(1024)
+        response = my_socket.recv(BUFFER_SIZE)
         print 'recieve from server: ', response
         parameters = response_to_parameters(response)
         validate, error_msg = parameters
@@ -417,13 +444,15 @@ def join_room_window(username):
     join_room_screen.mainloop()
 
 
-# Open room window
+# Handles receiving of messages
 def room_window(username, type_of_room):
     def exit():
         room_screen.destroy()
 
     def send_message(parameters):
         sending_to_server(parameters)
+
+    sending_to_server(['join_room', type_of_room, username])
 
     destroying_last_window()
 
@@ -450,7 +479,7 @@ def room_window(username, type_of_room):
     etr_first_name.place(x=50, y=395)
 
     btn_send = Button(room_screen, text="send", font="arial 10 bold",
-                      command=lambda: send_message(['send_message', username, message.get()]))
+                      command=lambda: send_message(['send_message', type_of_room, username, message.get()]))
     btn_send.place(x=330, y=394)
 
     lbl_users = Label(room_screen, text='Users in this room', font="arial 12 bold")
@@ -472,13 +501,16 @@ def room_window(username, type_of_room):
     btn_exit = Button(room_screen, text="Exit", font="arial 12", command=exit)
     btn_exit.place(x=510, y=450)
 
+    receive_thread = Thread(target=receive)
+    receive_thread.start()
+
     room_screen.mainloop()
 
 
 # main
 def main():
     connecting_to_server()
-    login_window()
+    room_window('Aviv', 'food')
 
 
 if __name__ == "__main__":
