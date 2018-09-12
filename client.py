@@ -15,33 +15,12 @@ login_screen = None
 register_screen = None
 forgot_password_screen = None
 join_room_screen = None
-
-# Open room window
-def receive():
-    def handle_mesage_from_server(message):
-        global room_screen
-        message_parameters = response_to_parameters(message)
-
-        if len(message_parameters) == 0:
-            return
-
-        message_type = message_parameters[0]
-        if message_type == 'user_message':
-            pass
-        elif message_type == 'user_join':
-            # lbl_title.configure(text='{0} has join the room'.format(message_parameters[1]))
-            pass
-
-    while True:
-        try:
-            # msg = my_socket.recv(BUFFER_SIZE).decode("utf8")
-            message = my_socket.recv(BUFFER_SIZE)
-            handle_mesage_from_server(message)
-        except OSError:  # Possibly client has left the chat.
-            break
 room_screen = None
 my_socket = None
 code_for_reset_password = ''
+
+
+
 
 
 def response_to_parameters(response):
@@ -312,9 +291,9 @@ def registration_window():
     global register_screen
     register_screen = Tk()
 
-    arthur_photo = PhotoImage(file="arthur.gif")
-    spongebob_photo = PhotoImage(file="spongebob.gif")
-    cosmo_photo = PhotoImage(file="cosmo.gif")
+    arthur_photo = PhotoImage(file="images/arthur.gif")
+    spongebob_photo = PhotoImage(file="images/spongebob.gif")
+    cosmo_photo = PhotoImage(file="images/cosmo.gif")
 
     register_screen.title(SCREEN_TITLE)
     register_screen.geometry(SCREEN_SETTINGS)
@@ -406,10 +385,10 @@ def join_room_window(username):
     global join_room_screen
     join_room_screen = Tk()
 
-    photo_sport = PhotoImage(file="sport.gif")
-    photo_movies = PhotoImage(file="movies.gif")
-    photo_food = PhotoImage(file="food.gif")
-    photo_gaming = PhotoImage(file="gaming.gif")
+    photo_sport = PhotoImage(file="images/sport.gif")
+    photo_movies = PhotoImage(file="images/movies.gif")
+    photo_food = PhotoImage(file="images/food.gif")
+    photo_gaming = PhotoImage(file="images/gaming.gif")
 
     join_room_screen.title(SCREEN_TITLE)
     join_room_screen.geometry(SCREEN_SETTINGS)
@@ -444,19 +423,53 @@ def join_room_window(username):
     join_room_screen.mainloop()
 
 
-# Handles receiving of messages
+# Open room window
 def room_window(username, type_of_room):
     def exit():
         room_screen.destroy()
 
     def send_message(parameters):
+        etr_message.delete(0, 'end')
         sending_to_server(parameters)
 
-    sending_to_server(['join_room', type_of_room, username])
+
+    # Handles receiving of messages
+    def receive():
+        def handle_mesage_from_server(message):
+            global room_screen
+            message_parameters = response_to_parameters(message)
+
+            if len(message_parameters) == 0:
+                return
+
+            message_type = message_parameters[0]
+            if message_type == 'user_message':
+                username, message_content = message_parameters[1:]
+                lbx_messages.insert(END, '{0}: {1}'.format(username, message_content))
+            elif message_type == 'user_join':
+                # pht_first_image = PhotoImage(file=CONSTANT_FIRST_IMAGE).subsample(9)
+                # lab_first_image = Label(connected_useres_sport, image=pht_first_image)
+                pass
+                '''
+                username, user_picture = message_parameters[1:]
+                user_picture = PhotoImage(file=user_picture)
+                lbx_messages.insert(user_picture)
+                lbx_users.insert()
+                '''
+            elif message_type == 'user_exit':
+                pass
+        while True:
+            try:
+                # msg = my_socket.recv(BUFFER_SIZE).decode("utf8")
+                message = my_socket.recv(BUFFER_SIZE)
+                handle_mesage_from_server(message)
+            except OSError:  # Possibly client has left the chat.
+                break
 
     destroying_last_window()
 
     global room_screen
+
     room_screen = Tk()
 
     message = StringVar()
@@ -475,8 +488,8 @@ def room_window(username, type_of_room):
     lbx_messages.config(yscrollcommand=slb_messages.set)
     slb_messages.config(command=lbx_messages.yview)
 
-    etr_first_name = Entry(room_screen, font="arial 13", width=30, textvariable=message)
-    etr_first_name.place(x=50, y=395)
+    etr_message = Entry(room_screen, font="arial 13", width=30, textvariable=message)
+    etr_message.place(x=50, y=395)
 
     btn_send = Button(room_screen, text="send", font="arial 10 bold",
                       command=lambda: send_message(['send_message', type_of_room, username, message.get()]))
@@ -501,6 +514,7 @@ def room_window(username, type_of_room):
     btn_exit = Button(room_screen, text="Exit", font="arial 12", command=exit)
     btn_exit.place(x=510, y=450)
 
+    sending_to_server(['join_room', type_of_room, username])
     receive_thread = Thread(target=receive)
     receive_thread.start()
 
@@ -510,7 +524,8 @@ def room_window(username, type_of_room):
 # main
 def main():
     connecting_to_server()
-    room_window('Aviv', 'food')
+    login_window()
+    # room_window('tal', 'food')
 
 
 if __name__ == "__main__":

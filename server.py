@@ -29,7 +29,6 @@ def sending_to_client(client_socket, parameters):
         print 'while trying to send message to client, he was disconnected.\n error: {0}'.format(ex.strerror)
 
 
-
 def request_to_parameters(request_content):
     parameters = []
     num_of_parameters = request_content.count("^")
@@ -174,16 +173,26 @@ def change_password(parameters, server_socket):
 
 
 def send_message(parameters, server_socket):
+    print parameters
     room_name, username, message = parameters[1:]
     room_to_send = get_room_by_name(room_name)
     send_message_to_all_users_in_room(room_to_send, ['user_message', username, message])
+
 
 def join_room(parameters, user_socket):
     room_name, username = parameters[1:]
     room_to_add = get_room_by_name(room_name)
     if room_to_add is not None:
         room_to_add.append((username, user_socket))
-        send_message_to_all_users_in_room(room_to_add, ['user_join', username])
+
+        #  open db for getting user's pucture
+        connection = sqlite3.connect('tblUsers.db')
+        cursor = connection.cursor()
+        params = (username,)
+        cursor.execute("SELECT usrPicID FROM tblUsers WHERE usrNickName = ?", params)
+        user_picture = cursor.fetchone()
+
+        send_message_to_all_users_in_room(room_to_add, ['user_join', username, user_picture])
 
 
 def get_room_by_name(room_name):
@@ -196,6 +205,7 @@ def get_room_by_name(room_name):
     elif room_name == 'sport':
         return sport_room_users
     return None
+
 
 def send_message_to_all_users_in_room(room_to_send, message_parameters):
     for (current_username, current_user_socket) in room_to_send:
