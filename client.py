@@ -19,8 +19,8 @@ room_screen = None
 my_socket = None
 code_for_reset_password = ''
 
-
-
+USER_PICTURE_X_START = 395
+USER_PICTURE_Y_START = 125
 
 
 def response_to_parameters(response):
@@ -425,13 +425,14 @@ def join_room_window(username):
 
 # Open room window
 def room_window(username, type_of_room):
+    users_in_room = []
+
     def exit():
         room_screen.destroy()
 
     def send_message(parameters):
         etr_message.delete(0, 'end')
         sending_to_server(parameters)
-
 
     # Handles receiving of messages
     def receive():
@@ -447,8 +448,20 @@ def room_window(username, type_of_room):
                 username, message_content = message_parameters[1:]
                 lbx_messages.insert(END, '{0}: {1}'.format(username, message_content))
             elif message_type == 'user_join':
-                # pht_first_image = PhotoImage(file=CONSTANT_FIRST_IMAGE).subsample(9)
-                # lab_first_image = Label(connected_useres_sport, image=pht_first_image)
+                username, user_picture = message_parameters[1:]
+                users_in_room.append((username, user_picture))
+
+                i = 0
+                for current_user in users_in_room:
+                    pht_first_image = PhotoImage(file='images/{0}'.format(current_user[1])).subsample(2)
+                    lbl_user_picture = Label(room_screen, image=pht_first_image)
+                    lbl_user_picture.image = pht_first_image
+                    lbl_user_picture.place(x=USER_PICTURE_X_START, y=USER_PICTURE_Y_START + 45 * i)
+
+                    lbl_username = Label(room_screen, text=current_user[0])
+                    lbl_username.place(x=USER_PICTURE_X_START + 45, y=USER_PICTURE_Y_START + 45 * i)
+                    i += 1
+                # lbx_users.insert(END, pht_first_image)
                 pass
                 '''
                 username, user_picture = message_parameters[1:]
@@ -458,6 +471,7 @@ def room_window(username, type_of_room):
                 '''
             elif message_type == 'user_exit':
                 pass
+
         while True:
             try:
                 # msg = my_socket.recv(BUFFER_SIZE).decode("utf8")
@@ -498,12 +512,8 @@ def room_window(username, type_of_room):
     lbl_users = Label(room_screen, text='Users in this room', font="arial 12 bold")
     lbl_users.place(x=390, y=85)
 
-    lbx_users = Listbox(room_screen, width=31, height=10)
+    lbx_users = Listbox(room_screen, width=31, height=15)
     lbx_users.place(x=390, y=120)
-    slb_users = Scrollbar(room_screen)
-    slb_users.place(x=580, y=120)
-    lbx_users.config(yscrollcommand=slb_users.set)
-    slb_users.config(command=lbx_users.yview)
 
     btn_back = Button(room_screen, text="Back", font='arial 12', command=lambda: join_room_window(username))
     btn_back.place(x=70, y=450)
@@ -524,8 +534,8 @@ def room_window(username, type_of_room):
 # main
 def main():
     connecting_to_server()
-    login_window()
-    # room_window('tal', 'food')
+    # login_window()
+    room_window('avler', 'food')
 
 
 if __name__ == "__main__":

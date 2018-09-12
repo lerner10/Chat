@@ -190,7 +190,7 @@ def join_room(parameters, user_socket):
         cursor = connection.cursor()
         params = (username,)
         cursor.execute("SELECT usrPicID FROM tblUsers WHERE usrNickName = ?", params)
-        user_picture = cursor.fetchone()
+        user_picture = cursor.fetchone()[0]
 
         send_message_to_all_users_in_room(room_to_add, ['user_join', username, user_picture])
 
