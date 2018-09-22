@@ -2,6 +2,10 @@ from Tkinter import *
 import tkMessageBox as messagebox
 import socket
 from Crypto.Hash import SHA
+from Crypto import Random
+from Crypto.PublicKey import RSA
+import base64
+import pickle
 
 # The dimensions of the windows
 from threading import Thread
@@ -20,12 +24,37 @@ join_room_screen = None
 room_screen = None
 my_socket = None
 code_for_reset_password = ''
+private_key = None
+public_key = None
 
 USER_PICTURE_X_START = 2
 USER_PICTURE_Y_START = 2
 
 
+def generate_keys():
+    # RSA modulus length must be a multiple of 256 and >= 1024
+    modulus_length = 256*4 # use larger value in production
+    private_key = RSA.generate(modulus_length, Random.new().read)
+    public_key = private_key.publickey()
+    return private_key, public_key
+
+
+def encrypt_message(a_message ,public_key):
+    encrypted_msg = public_key.encrypt(a_message, 32)[0]
+    encoded_encrypted_msg = base64.b64encode(encrypted_msg)  # base64 encoded strings are database friendly
+    return encoded_encrypted_msg
+
+
+def decrypt_message(encoded_encrypted_msg, privatekey):
+    decoded_encrypted_msg = base64.b64decode(encoded_encrypted_msg)
+    decoded_decrypted_msg = privatekey.decrypt(decoded_encrypted_msg)
+    return decoded_decrypted_msg
+
+
 def response_to_parameters(response):
+    print 'got from server before decryption:' + response
+    response = decrypt_message(response, private_key)
+    print 'got from server after decryption:' + response
     parameters = []
     num_of_parameters = response.count("^")
     for x in range(num_of_parameters):
@@ -34,13 +63,28 @@ def response_to_parameters(response):
     return parameters
 
 
+def get_hashed_password(password):
+    h = SHA.new()
+    h.update(password)
+    return h.hexdigest()
+
+
 # Connect the client to the server
 def connecting_to_server():
+    global public_key
+    global private_key
     global my_socket
     try:
         my_socket = socket.socket()
         my_socket.connect(('127.0.0.1', PORT_NUMBER))
         print 'connected to server'
+        private_key, public_key_for_server = generate_keys()
+        public_key_for_server = pickle.dumps(public_key_for_server)
+        my_socket.send(public_key_for_server)
+        public_key = my_socket.recv(1024)
+        public_key = pickle.loads(public_key)
+
+
     except:
         print 'no server to connect'
         quit()
@@ -76,15 +120,10 @@ def sending_to_server(parameters):
     data = ""
     for parameter in parameters:
         data += parameter + SPECIAL_SIGN
-    print "sending to the server the following message: {0}".format(data)
+    print "sending to the server before encryption" + data
+    data = encrypt_message(data, public_key)
+    print "sending to the server after encryption" + data
     my_socket.send(data)
-
-
-def get_hashed_password(password):
-    h = SHA.new()
-    h.update(password)
-    return h.hexdigest()
-
 
 # Open the login window
 def login_window():
