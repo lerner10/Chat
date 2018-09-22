@@ -2,12 +2,14 @@ import socket
 import select
 import sqlite3
 import random
-
 # Import smtplib for the actual sending function
 import smtplib
-
 from email.MIMEMultipart import MIMEMultipart
 from email.MIMEText import MIMEText
+from Crypto import Random
+from Crypto.PublicKey import RSA
+import base64
+import pickle
 
 SPECIAL_SIGN = "^"
 PORT_NUMBER = 8820
@@ -23,11 +25,39 @@ gaming_room_users_list = []
 movies_room_users_list = []
 
 
+encryption_keys = {}
+decryption_keys = {}
+
+
+def generate_keys():
+    # RSA modulus length must be a multiple of 256 and >= 1024
+    modulus_length = 256*4 # use larger value in production
+    private_key = RSA.generate(modulus_length, Random.new().read)
+    public_key = private_key.publickey()
+    return private_key, public_key
+
+
+def encrypt_message(a_message, public_key):
+    encrypted_msg = public_key.encrypt(a_message, 32)[0]
+    encoded_encrypted_msg = base64.b64encode(encrypted_msg) # base64 encoded strings are database friendly
+    return encoded_encrypted_msg
+
+
+def decrypt_message(encoded_encrypted_msg, client_socket):
+    private_key = decryption_keys[client_socket]
+    decoded_encrypted_msg = base64.b64decode(encoded_encrypted_msg)
+    decoded_decrypted_msg = private_key.decrypt(decoded_encrypted_msg)
+    return decoded_decrypted_msg
+
+
 def sending_to_client(client_socket, parameters):
     data = ""
     for parameter in parameters:
         data += str(parameter) + SPECIAL_SIGN
-    print "send to the client: " + data
+    print "sending to the client before encryption: " + data
+    public_key = encryption_keys[client_socket]
+    data = encrypt_message(data, public_key)
+    print "sending to the client after encryption: " + data
     try:
         client_socket.send(data)
     except Exception, ex:
@@ -267,6 +297,9 @@ def send_message_to_all_users_in_room(room_to_send, message_parameters):
 def handle_request(wlist, requests):
     for current_request in requests:
         (sender_client_socket, request_content) = current_request
+        print 'got from server before decryption:' + request_content
+        request_content = decrypt_message(request_content, sender_client_socket)
+        print 'got from server after decryption:' + request_content
         parameters = request_to_parameters(request_content)
         if parameters[0] == "login":
             login(parameters, sender_client_socket)
@@ -296,6 +329,13 @@ def main():
         for current_socket in rlist:
             if current_socket is server_socket:
                 (new_socket, address) = server_socket.accept()
+                private_key, public_key_for_client = generate_keys()
+                public_key = new_socket.recv(1024)
+                public_key = pickle.loads(public_key)
+                public_key_for_client = pickle.dumps(public_key_for_client)
+                new_socket.send(public_key_for_client)
+                decryption_keys[new_socket] = private_key
+                encryption_keys[new_socket] = public_key
                 open_client_sockets.append(new_socket)
             else:
                 try:
