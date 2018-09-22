@@ -12,10 +12,15 @@ from email.MIMEText import MIMEText
 SPECIAL_SIGN = "^"
 PORT_NUMBER = 8820
 
-food_room_users = []
-sport_room_users = []
-gaming_room_users = []
-movies_room_users = []
+food_room_users_to_send = []
+sport_room_users_to_send = []
+gaming_room_users_to_send = []
+movies_room_users_to_send = []
+
+food_room_users_list = []
+sport_room_users_list = []
+gaming_room_users_list = []
+movies_room_users_list = []
 
 
 def sending_to_client(client_socket, parameters):
@@ -38,6 +43,44 @@ def request_to_parameters(request_content):
     return parameters
 
 
+def get_username_by_socket(user_socket):
+    for x in food_room_users_to_send:
+        if x[1] == user_socket:
+            return x[0], 'food'
+
+    for x in gaming_room_users_to_send:
+        if x[1] == user_socket:
+            return x[0], 'gaming'
+
+    for x in sport_room_users_to_send:
+        if x[1] == user_socket:
+            return x[0], 'sport'
+
+    for x in movies_room_users_to_send:
+        if x[1] == user_socket:
+            return x[0], 'movies'
+    return '',''
+
+
+def user_exit(user_socket):
+    username, room_name = get_username_by_socket(user_socket)
+
+    if username == '' and room_name == '':
+        return
+
+    room_to_send = get_room_by_name_to_send(room_name)
+    for tuple in room_to_send:
+        if tuple[0] == username:
+            room_to_send.remove(tuple)
+
+    room_list = get_room_by_name_list(room_name)
+    username_index = room_list.index(username)
+    room_list.pop(username_index)
+    room_list.pop(username_index)
+
+    send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
+
+
 def login(parameters, server_socket):
     validate = "True"
     error_msg = ""
@@ -47,13 +90,14 @@ def login(parameters, server_socket):
     cursor = connection.cursor()
     params = (username,)
     cursor.execute("SELECT usrPWD FROM tblUsers WHERE usrNickName = ?", params)
-    confirm_password = cursor.fetchone()
-    if not confirm_password:
+    user_password_from_db = cursor.fetchone()
+    if not user_password_from_db:
         validate = "False"
         error_msg = "Username is incorrect"
     else:
-        confirm_password = confirm_password[0]
-        if password != confirm_password:
+        user_password_from_db = user_password_from_db[0]
+        # if sha(password) != user_password_from_db:
+        if password != user_password_from_db:
             validate = "False"
             error_msg = "Password is incorrect"
 
@@ -68,18 +112,11 @@ def register(parameters, server_socket):
     validate = "False"
     error_msg = ""
 
-    username, password, confirm_password, first_name, last_name, birthday, mail, picture = parameters[1:]
+    username, password, first_name, last_name, birthday, mail, picture = parameters[1:]
 
     if len(username) < 5:
         error_msg = "Username should contain\nat least 5 letters"
-    elif password != confirm_password:
-        error_msg = "Passwords do not match"
-    elif len(password) < 7:
-        error_msg = "Password should contain\nat least 8 letters"
-    elif password.isdigit():
-        error_msg = "Password should contain\nat least one letter"
-    elif password.isalpha():
-        error_msg = "Password should contain\nat least one digit"
+
     elif len(first_name) < 2:
         error_msg = "First name must contain\nat least 2 letters"
     elif len(last_name) < 2:
@@ -175,15 +212,16 @@ def change_password(parameters, server_socket):
 def send_message(parameters, server_socket):
     print parameters
     room_name, username, message = parameters[1:]
-    room_to_send = get_room_by_name(room_name)
+    room_to_send = get_room_by_name_to_send(room_name)
     send_message_to_all_users_in_room(room_to_send, ['user_message', username, message])
 
 
 def join_room(parameters, user_socket):
     room_name, username = parameters[1:]
-    room_to_add = get_room_by_name(room_name)
-    if room_to_add is not None:
-        room_to_add.append((username, user_socket))
+    room_to_send = get_room_by_name_to_send(room_name)
+    room_list = get_room_by_name_list(room_name)
+    if room_to_send is not None:
+        room_to_send.append((username, user_socket))
 
         #  open db for getting user's pucture
         connection = sqlite3.connect('tblUsers.db')
@@ -191,19 +229,32 @@ def join_room(parameters, user_socket):
         params = (username,)
         cursor.execute("SELECT usrPicID FROM tblUsers WHERE usrNickName = ?", params)
         user_picture = cursor.fetchone()[0]
+        room_list.append(username)
+        room_list.append(user_picture)
+        send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
 
-        send_message_to_all_users_in_room(room_to_add, ['user_join', username, user_picture])
 
-
-def get_room_by_name(room_name):
+def get_room_by_name_to_send(room_name):
     if room_name == "food":
-        return food_room_users
+        return food_room_users_to_send
     elif room_name == "movies":
-        return movies_room_users
+        return movies_room_users_to_send
     elif room_name == 'gaming':
-        return gaming_room_users
+        return gaming_room_users_to_send
     elif room_name == 'sport':
-        return sport_room_users
+        return sport_room_users_to_send
+    return None
+
+
+def get_room_by_name_list(room_name):
+    if room_name == "food":
+        return food_room_users_list
+    elif room_name == "movies":
+        return movies_room_users_list
+    elif room_name == 'gaming':
+        return gaming_room_users_list
+    elif room_name == 'sport':
+        return sport_room_users_list
     return None
 
 
@@ -252,6 +303,7 @@ def main():
                     # If the client has disconnected
                     if data == "":
                         open_client_sockets.remove(current_socket)
+                        user_exit(current_socket)
                         print "Connection with client closed"
                     else:
                         print 'recieve from client: ', data
@@ -259,6 +311,7 @@ def main():
                 except Exception, ex:
                     print ex.strerror
                     open_client_sockets.remove(current_socket)
+                    user_exit(current_socket)
                     pass
 
         handle_request(wlist, requests)
