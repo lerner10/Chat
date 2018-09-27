@@ -24,6 +24,7 @@ sport_room_users_list = []
 gaming_room_users_list = []
 movies_room_users_list = []
 
+users_in_chat = []
 
 encryption_keys = {}
 decryption_keys = {}
@@ -74,30 +75,40 @@ def request_to_parameters(request_content):
 
 
 def get_username_by_socket(user_socket):
-    for x in food_room_users_to_send:
-        if x[1] == user_socket:
-            return x[0], 'food'
+    for (server_socket, username) in users_in_chat:
+        if server_socket == user_socket:
+            return username
+    return ''
 
-    for x in gaming_room_users_to_send:
-        if x[1] == user_socket:
-            return x[0], 'gaming'
 
-    for x in sport_room_users_to_send:
-        if x[1] == user_socket:
-            return x[0], 'sport'
+def get_room_by_username(username):
+    for (username_in_list, user_socket) in food_room_users_to_send:
+        if username_in_list == username:
+            return 'food'
 
-    for x in movies_room_users_to_send:
-        if x[1] == user_socket:
-            return x[0], 'movies'
-    return '',''
+    for (username_in_list, user_socket) in gaming_room_users_to_send:
+        if username_in_list == username:
+            return 'gaming'
+
+    for (username_in_list, user_socket) in sport_room_users_to_send:
+        if username_in_list == username:
+            return 'sport'
+
+    for (username_in_list, user_socket) in movies_room_users_to_send:
+        if username_in_list == username:
+            return 'movies'
+    return ''
 
 
 def user_exit(user_socket):
-    username, room_name = get_username_by_socket(user_socket)
 
-    if username == '' and room_name == '':
+    username = get_username_by_socket(user_socket)
+    if not username:
         return
-
+    users_in_chat.remove((user_socket, username))
+    room_name = get_room_by_username(username)
+    if room_name == '':
+        return
     room_to_send = get_room_by_name_to_send(room_name)
     for tuple in room_to_send:
         if tuple[0] == username:
@@ -105,7 +116,6 @@ def user_exit(user_socket):
 
     room_list = get_room_by_name_list(room_name)
     username_index = room_list.index(username)
-    room_list.pop(username_index)
     room_list.pop(username_index)
 
     send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
@@ -121,6 +131,10 @@ def login(parameters, server_socket):
     params = (username,)
     cursor.execute("SELECT usrPWD FROM tblUsers WHERE usrNickName = ?", params)
     user_password_from_db = cursor.fetchone()
+    for (server_socket, username_in_list) in users_in_chat:
+        if username_in_list == username:
+            validate = 'False'
+            error_msg = 'you are already logged in'
     if not user_password_from_db:
         validate = "False"
         error_msg = "Username is incorrect"
@@ -130,6 +144,9 @@ def login(parameters, server_socket):
         if password != user_password_from_db:
             validate = "False"
             error_msg = "Password is incorrect"
+
+    if validate == 'True':
+        users_in_chat.append((server_socket, username))
 
     # Close the connection
     connection.close()
@@ -213,30 +230,19 @@ def send_email(parameters, server_socket):
 
 
 def change_password(parameters, server_socket):
-    validate = "False"
-    error_msg = ""
 
     username, new_password = parameters[1:]
 
-    if len(new_password) < 7:
-        error_msg = "Password should contain\nat least 8 letters"
-    elif new_password.isdigit():
-        error_msg = "Password should contain\nat least one letter"
-    elif new_password.isalpha():
-        error_msg = "Password should contain\nat least one digit"
-    else:
-        validate = "True"
-        connection = sqlite3.connect('tblUsers.db')
-        cursor = connection.cursor()
-        params = (new_password, username)
-        cursor.execute('UPDATE tblUsers SET usrPWD = ? WHERE usrNickName = ?', params)
-        # Save the changes
-        connection.commit()
 
-        # Close the connection
-        connection.close()
+    connection = sqlite3.connect('tblUsers.db')
+    cursor = connection.cursor()
+    params = (new_password, username)
+    cursor.execute('UPDATE tblUsers SET usrPWD = ? WHERE usrNickName = ?', params)
+    # Save the changes
+    connection.commit()
 
-    sending_to_client(server_socket, [validate, error_msg])
+    # Close the connection
+    connection.close()
 
 
 def send_message(parameters, server_socket):
@@ -252,15 +258,7 @@ def join_room(parameters, user_socket):
     room_list = get_room_by_name_list(room_name)
     if room_to_send is not None:
         room_to_send.append((username, user_socket))
-
-        #  open db for getting user's pucture
-        connection = sqlite3.connect('tblUsers.db')
-        cursor = connection.cursor()
-        params = (username,)
-        cursor.execute("SELECT usrPicID FROM tblUsers WHERE usrNickName = ?", params)
-        user_picture = cursor.fetchone()[0]
         room_list.append(username)
-        room_list.append(user_picture)
         send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
 
 
@@ -293,6 +291,19 @@ def send_message_to_all_users_in_room(room_to_send, message_parameters):
         sending_to_client(current_user_socket, message_parameters)
 
 
+def change_account(parameters, sender_client_socket):
+    username, type_of_room = parameters[1:]
+    room_to_send = get_room_by_name_to_send(type_of_room)
+    for tuple in room_to_send:
+        if tuple[0] == username:
+            room_to_send.remove(tuple)
+
+    room_list = get_room_by_name_list(type_of_room)
+    username_index = room_list.index(username)
+    room_list.pop(username_index)
+
+    send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
+
 # Reference the request to its purpose
 def handle_request(wlist, requests):
     for current_request in requests:
@@ -313,6 +324,14 @@ def handle_request(wlist, requests):
             send_message(parameters, sender_client_socket)
         elif parameters[0] == 'join_room':
             join_room(parameters, sender_client_socket)
+        elif parameters[0] == 'change_account_from_room':
+            sending_to_client(sender_client_socket, ['exit room'])
+            change_account(parameters, sender_client_socket)
+        elif parameters[0] == 'change_account_from_menu':
+            user_exit(sender_client_socket)
+        elif parameters[0] == 'exit_room':
+            sending_to_client(sender_client_socket, ['exit room'])
+            user_exit(sender_client_socket)
         requests.remove(current_request)
 
 
