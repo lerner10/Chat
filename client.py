@@ -1,14 +1,12 @@
 from Tkinter import *
-import tkMessageBox as messagebox
 import socket
 from Crypto.Hash import SHA
 from Crypto import Random
 from Crypto.PublicKey import RSA
 import base64
 import pickle
-
 # The dimensions of the windows
-from threading import Thread
+from threading import Thread, Event
 
 SCREEN_SETTINGS = "607x530+400+100"
 # The Title of the windows
@@ -26,14 +24,14 @@ my_socket = None
 code_for_reset_password = ''
 private_key = None
 public_key = None
-
+stop_thread = Event()
 USER_PICTURE_X_START = 2
 USER_PICTURE_Y_START = 2
 
 
 def generate_keys():
     # RSA modulus length must be a multiple of 256 and >= 1024
-    modulus_length = 256*4 # use larger value in production
+    modulus_length = 256*4  # use larger value in production
     private_key = RSA.generate(modulus_length, Random.new().read)
     public_key = private_key.publickey()
     return private_key, public_key
@@ -52,9 +50,9 @@ def decrypt_message(encoded_encrypted_msg, privatekey):
 
 
 def response_to_parameters(response):
-    print 'got from server before decryption:' + response
+    print 'got from server before decryption: ' + response
     response = decrypt_message(response, private_key)
-    print 'got from server after decryption:' + response
+    print 'got from server after decryption: ' + response
     parameters = []
     num_of_parameters = response.count("^")
     for x in range(num_of_parameters):
@@ -92,6 +90,7 @@ def connecting_to_server():
 
 # Closing the last open window
 def destroying_last_window():
+    global  stop_thread
     global login_screen
     global register_screen
     global join_room_screen
@@ -105,6 +104,7 @@ def destroying_last_window():
         except:
             try:
                 join_room_screen.destroy()
+                stop_thread.set()
             except:
                 try:
                     forgot_password_screen.destroy()
@@ -120,10 +120,11 @@ def sending_to_server(parameters):
     data = ""
     for parameter in parameters:
         data += parameter + SPECIAL_SIGN
-    print "sending to the server before encryption" + data
+    print "sending to the server before encryption: " + data
     data = encrypt_message(data, public_key)
-    print "sending to the server after encryption" + data
+    print "sending to the server after encryption: " + data
     my_socket.send(data)
+
 
 # Open the login window
 def login_window():
@@ -139,7 +140,6 @@ def login_window():
         parameters[2] = hashed_password
         sending_to_server(parameters)
         response = my_socket.recv(BUFFER_SIZE)
-        print 'recieve from server: ', response
         parameters = response_to_parameters(response)
         validate, error_msg = parameters
         if validate == "False":
@@ -235,20 +235,26 @@ def forgot_password_window():
             lbl_change_password.configure(text='The code is incorrect')
 
     def change_password(parameters):
-        sending_to_server(parameters)
-        response = my_socket.recv(BUFFER_SIZE)
-        print 'recieve from server: ', response
-
-        parameters = response_to_parameters(response)
-        validate, error_msg = parameters
-        lbl_error_msg.place(x=320, y=375)
-        if validate == "False":
+        error_msg = ''
+        password = parameters[2]
+        if len(password) < 7:
+            error_msg = "Password should contain\nat least 8 letters"
+        elif password.isdigit():
+            error_msg = "Password should contain\nat least one letter"
+        elif password.isalpha():
+            error_msg = "Password should contain\nat least one digit"
+        if error_msg:
             lbl_error_msg.configure(text=error_msg)
         else:
+            hashed_password = get_hashed_password(password)
+            parameters[2] = hashed_password
+            sending_to_server(parameters)
+
             etr_new_password.configure(state=DISABLED)
             btn_change_password.configure(state=DISABLED)
 
             lbl_error_msg.configure(text='password was changed')
+        lbl_error_msg.place(x=320, y=375)
 
     destroying_last_window()
     global forgot_password_screen
@@ -291,7 +297,7 @@ def forgot_password_window():
     btn_exit = Button(forgot_password_screen, text="Exit", font="arial 12", command=exit)
     btn_exit.place(x=510, y=450)
 
-
+picture = ''
 # Open the register window
 def registration_window():
     def exit():
@@ -353,7 +359,7 @@ def registration_window():
     destroying_last_window()
     global register_screen
     register_screen = Tk()
-    picture = ''
+
     arthur_photo = PhotoImage(file="images/arthur.gif")
     spongebob_photo = PhotoImage(file="images/spongebob.gif")
     cosmo_photo = PhotoImage(file="images/cosmo.gif")
@@ -417,7 +423,7 @@ def registration_window():
     btn_arthur_picture.place(x=350, y=310)
     btn_spongebob_picture = Button(register_screen, image=spongebob_photo, command=spongebob_picture)
     btn_spongebob_picture.place(x=430, y=310)
-    btn_cosmo_picture = Button(register_screen, image=cosmo_photo, command=cosmo_picture)
+    btn_cosmo_picture = Button(register_screen, image=cosmo_photo, command=lambda: cosmo_picture)
     btn_cosmo_picture.place(x=510, y=310)
 
     lbl_error_msg = Label(register_screen, bg=SCREEN_COLOUR, foreground="red", text="", font="arial 14 bold")
@@ -443,6 +449,10 @@ def registration_window():
 def join_room_window(username):
     def exit():
         join_room_screen.destroy()
+
+    def change_account():
+        sending_to_server(["change_account_from_menu"])
+        login_window()
 
     destroying_last_window()
     global join_room_screen
@@ -477,7 +487,7 @@ def join_room_window(username):
                        command=lambda: room_window(username, 'sport'))
     btn_sport.place(x=300, y=285)
 
-    btn_back = Button(join_room_screen, text="Change account", font="arial 12", command=login_window)
+    btn_back = Button(join_room_screen, text="Change account", font="arial 12", command=change_account)
     btn_back.place(x=70, y=450)
 
     btn_exit = Button(join_room_screen, text="Exit", font="arial 12", command=exit)
@@ -486,10 +496,12 @@ def join_room_window(username):
     join_room_screen.mainloop()
 
 
+
+
 # Open room window
 def room_window(username, type_of_room):
-    def exit():
-        room_screen.destroy()
+    global stop_thread
+    global room_screen
 
     def send_message(parameters):
         etr_message.delete(0, 'end')
@@ -509,33 +521,9 @@ def room_window(username, type_of_room):
                 username, message_content = message_parameters[1:]
                 lbx_messages.insert(END, '{0}: {1}'.format(username, message_content))
             elif message_type == 'update_users':
-                flag_username = True
-
-                frame.delete("all")
-
-                for widget in frame.winfo_children():
-                    widget.destroy()
-
-                i = 0
-                for x in message_parameters[1:]:
-                    if flag_username:
-                        username = x
-                        lbl_username = Label(frame, text=username)
-                        lbl_username.place(x=USER_PICTURE_X_START + 45, y=USER_PICTURE_Y_START + 45 * i)
-
-
-                    else:
-                        user_picture = x
-                        photo = PhotoImage(file='images/{0}'.format(user_picture)).subsample(2)
-                        lbl_user_picture = Label(frame, image=photo)
-                        lbl_user_picture.image = photo
-                        lbl_user_picture.place(x=USER_PICTURE_X_START, y=USER_PICTURE_Y_START + 45 * i)
-
-                        # frame.create_image(20, 20, image=photo)
-
-                        i += 1
-                    flag_username = not flag_username
-
+                lbx_users.delete(0, 'end')
+                for user in message_parameters[1:]:
+                    lbx_users.insert(END, user)
 
             elif message_type == 'user_exit':
                 pass
@@ -544,23 +532,26 @@ def room_window(username, type_of_room):
             try:
                 # msg = my_socket.recv(BUFFER_SIZE).decode("utf8")
                 message = my_socket.recv(BUFFER_SIZE)
-                print message
+                message_parameters = response_to_parameters(message)
+                if message_parameters[0] == 'exit room':
+                    break
                 handle_mesage_from_server(message)
             except OSError:  # Possibly client has left the chat.
                 break
 
     destroying_last_window()
 
-    sending_to_server(['join_room', type_of_room, username])
+    def change_account():
+        sending_to_server(["change_account_from_room", username, type_of_room])
+        login_window()
 
-    global room_screen
 
-    def on_closing():
-        if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            room_screen.destroy()
+    def exit_room(username):
+        sending_to_server(["exit_room"])
+        join_room_window(username)
 
     room_screen = Tk()
-    room_screen.protocol("WM_DELETE_WINDOW", on_closing)
+
 
     message = StringVar()
 
@@ -589,25 +580,28 @@ def room_window(username, type_of_room):
     lbl_users = Label(room_screen, text='Users in this room', font="arial 12 bold")
     lbl_users.place(x=390, y=85)
 
-    frame = Canvas(room_screen, width=180, height=200)
-    frame.place(x=390, y=120)
-    slb_frame = Scrollbar(room_screen)
-    slb_frame.place(x=574, y=120)
-    frame.config(yscrollcommand=slb_frame.set)
-    slb_frame.config(command=frame.yview)
+    lbx_users = Listbox(room_screen, width=31, height=10)
+    lbx_users.place(x=390, y=120)
+    slb_users = Scrollbar(room_screen)
+    slb_users.place(x=580, y=120)
+    lbx_users.config(yscrollcommand=slb_users.set)
+    slb_users.config(command=lbx_users.yview)
 
-    btn_back = Button(room_screen, text="Back", font='arial 12', command=lambda: join_room_window(username))
+    btn_back = Button(room_screen, text="Back", font='arial 12', command=lambda: exit_room(username))
     btn_back.place(x=70, y=450)
 
-    btn_change_account = Button(room_screen, text="Change account", font='arial 12', command=login_window)
+    btn_change_account = Button(room_screen, text="Change account", font='arial 12', command=change_account)
     btn_change_account.place(x=250, y=450)
 
     btn_exit = Button(room_screen, text="Exit", font="arial 12", command=exit)
     btn_exit.place(x=510, y=450)
 
+    # stop_thread.clear()
     receive_thread = Thread(target=receive)
     receive_thread.daemon = True
     receive_thread.start()
+
+    sending_to_server(['join_room', type_of_room, username])
 
     room_screen.mainloop()
 
@@ -616,8 +610,6 @@ def room_window(username, type_of_room):
 def main():
     connecting_to_server()
     login_window()
-    # room_window('avler', 'movies')
-
 
 if __name__ == "__main__":
     main()
