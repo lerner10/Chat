@@ -5,34 +5,42 @@ import socket
 import select
 import sqlite3
 import random
-# Import smtplib for the actual sending function
+import pickle  # Module for turning an instance to a string and the opposite
+import re  # Module for validating the mail address
+
+# Modules for sending an email
 import smtplib
 from email.MIMEMultipart import MIMEMultipart
 from email.MIMEText import MIMEText
+
+# Modules for encryption
 from Crypto import Random
 from Crypto.PublicKey import RSA
 import base64
-import pickle
 
 SPECIAL_SIGN = "^"
 PORT_NUMBER = 8820
 
+# lists contain tuples of the socket and the username of the users in each room
 food_room_users_to_send = []
 sport_room_users_to_send = []
 gaming_room_users_to_send = []
 movies_room_users_to_send = []
 
+# lists contain usernames in each room
 food_room_users_list = []
 sport_room_users_list = []
 gaming_room_users_list = []
 movies_room_users_list = []
 
+# list contains tuples of the socket and the username of the users using the chat
 users_in_chat = []
 
 encryption_keys = {}
 decryption_keys = {}
 
 
+# generate a public and a private key
 def generate_keys():
     # RSA modulus length must be a multiple of 256 and >= 1024
     modulus_length = 256 * 4  # use larger value in production
@@ -41,12 +49,14 @@ def generate_keys():
     return private_key, public_key
 
 
+# Encrypt a string using a public key
 def encrypt_message(a_message, public_key):
     encrypted_msg = public_key.encrypt(a_message, 32)[0]
     encoded_encrypted_msg = base64.b64encode(encrypted_msg)  # base64 encoded strings are database friendly
     return encoded_encrypted_msg
 
 
+# Decrypt a string using a private key
 def decrypt_message(encoded_encrypted_msg, client_socket):
     private_key = decryption_keys[client_socket]
     decoded_encrypted_msg = base64.b64decode(encoded_encrypted_msg)
@@ -54,6 +64,7 @@ def decrypt_message(encoded_encrypted_msg, client_socket):
     return decoded_decrypted_msg
 
 
+# Sending a list to the client by turning it to a string and encrypting it
 def sending_to_client(client_socket, parameters):
     data = ""
     for parameter in parameters:
@@ -68,15 +79,20 @@ def sending_to_client(client_socket, parameters):
         print 'while trying to send message to client, he was disconnected.\n error: {0}'.format(ex.strerror)
 
 
-def request_to_parameters(request_content):
+# Turning the string got from the client to a list
+def request_to_parameters(sender_client_socket, request_content):
+    print 'got from server before decryption:' + request_content
+    request_content = decrypt_message(request_content, sender_client_socket)
+    print 'got from server after decryption:' + request_content
     parameters = []
-    num_of_parameters = request_content.count("^")
+    num_of_parameters = request_content.count(SPECIAL_SIGN)
     for x in range(num_of_parameters):
-        parameters.append(request_content[:request_content.index("^")])
-        request_content = request_content[request_content.index("^") + 1:]
+        parameters.append(request_content[:request_content.index(SPECIAL_SIGN)])
+        request_content = request_content[request_content.index(SPECIAL_SIGN) + 1:]
     return parameters
 
 
+# returning username by getting the socket, for users using the chat
 def get_username_by_socket(user_socket):
     for (server_socket, username) in users_in_chat:
         if server_socket == user_socket:
@@ -84,6 +100,7 @@ def get_username_by_socket(user_socket):
     return ''
 
 
+# returning the list of the room by getting the name of the room as a string
 def get_room_by_username(username):
     for (username_in_list, user_socket) in food_room_users_to_send:
         if username_in_list == username:
@@ -103,6 +120,7 @@ def get_room_by_username(username):
     return ''
 
 
+# handling the case of a user exits abruptly
 def user_exit(user_socket):
     username = get_username_by_socket(user_socket)
     if not username:
@@ -123,6 +141,7 @@ def user_exit(user_socket):
     send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
 
 
+# handling client request to login the chat
 def login(parameters, server_socket):
     validate = "True"
     error_msg = ""
@@ -159,14 +178,17 @@ def login(parameters, server_socket):
     sending_to_client(server_socket, [validate, error_msg])
 
 
-# request = register
+# handling client request to register
 def register(parameters, server_socket):
     validate = "False"
     error_msg = ""
 
     username, password, first_name, last_name, birthday, mail, picture = parameters[1:]
 
-    if len(username) < 5:
+    match = re.match('^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,4})$', mail)
+    if not match:
+        error_msg = 'Email address is incorrect'
+    elif len(username) < 5:
         error_msg = "Username should contain\nat least 5 letters"
     elif len(first_name) < 2:
         error_msg = "First name must contain\nat least 2 letters"
@@ -174,7 +196,6 @@ def register(parameters, server_socket):
         error_msg = "Last name must contain\nat least 2 letters"
     elif int(birthday) > 2004:
         error_msg = "you have to be\nat least 14 years old"
-
     else:
         validate = "True"
         connection = sqlite3.connect('tblUsers.db')
@@ -200,6 +221,7 @@ def register(parameters, server_socket):
     sending_to_client(server_socket, [validate, error_msg])
 
 
+# sending an email for resetting code
 def send_email(parameters, server_socket):
     username = parameters[1]
     connection = sqlite3.connect('tblUsers.db')
@@ -234,6 +256,7 @@ def send_email(parameters, server_socket):
         sending_to_client(server_socket, [message_to_client, reset_code])
 
 
+#  change the user password to a new one
 def change_password(parameters, server_socket):
     username, new_password = parameters[1:]
 
@@ -248,13 +271,14 @@ def change_password(parameters, server_socket):
     connection.close()
 
 
+# handling client request to send a messgae to all users in room
 def send_message(parameters, server_socket):
-    print parameters
     room_name, username, message = parameters[1:]
     room_to_send = get_room_by_name_to_send(room_name)
     send_message_to_all_users_in_room(room_to_send, ['user_message', username, message])
 
 
+# handling client request to join a room
 def join_room(parameters, user_socket):
     room_name, username = parameters[1:]
     room_to_send = get_room_by_name_to_send(room_name)
@@ -265,6 +289,7 @@ def join_room(parameters, user_socket):
         send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
 
 
+# returning the list of the room by getting the name of the room as a string
 def get_room_by_name_to_send(room_name):
     if room_name == "food":
         return food_room_users_to_send
@@ -277,6 +302,7 @@ def get_room_by_name_to_send(room_name):
     return None
 
 
+# returning the list of the room by getting the name of the room as a string
 def get_room_by_name_list(room_name):
     if room_name == "food":
         return food_room_users_list
@@ -289,12 +315,15 @@ def get_room_by_name_list(room_name):
     return None
 
 
+# send the message of the client to all users in the room
 def send_message_to_all_users_in_room(room_to_send, message_parameters):
     for (current_username, current_user_socket) in room_to_send:
         sending_to_client(current_user_socket, message_parameters)
 
 
+# handling client request to log out
 def change_account(parameters, sender_client_socket):
+    sending_to_client(sender_client_socket, ['exit room'])
     username, type_of_room = parameters[1:]
     room_to_send = get_room_by_name_to_send(type_of_room)
     for tuple in room_to_send:
@@ -305,6 +334,24 @@ def change_account(parameters, sender_client_socket):
     username_index = room_list.index(username)
     room_list.pop(username_index)
 
+    users_in_chat.remove((sender_client_socket, username))
+
+    send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
+
+
+# handling client request to change room
+def change_room(sender_client_socket, parameters):
+    sending_to_client(sender_client_socket, ['exit room'])
+    username, room_name = parameters[1:]
+    room_to_send = get_room_by_name_to_send(room_name)
+    for tuple in room_to_send:
+        if tuple[0] == username:
+            room_to_send.remove(tuple)
+
+    room_list = get_room_by_name_list(room_name)
+    username_index = room_list.index(username)
+    room_list.pop(username_index)
+
     send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
 
 
@@ -312,30 +359,26 @@ def change_account(parameters, sender_client_socket):
 def handle_request(wlist, requests):
     for current_request in requests:
         (sender_client_socket, request_content) = current_request
-        print 'got from server before decryption:' + request_content
-        request_content = decrypt_message(request_content, sender_client_socket)
-        print 'got from server after decryption:' + request_content
-        parameters = request_to_parameters(request_content)
-        if parameters[0] == "login":
+        parameters = request_to_parameters(sender_client_socket, request_content)
+        client_request = parameters[0]
+        if client_request == "login":
             login(parameters, sender_client_socket)
-        elif parameters[0] == "register":
+        elif client_request == "register":
             register(parameters, sender_client_socket)
-        elif parameters[0] == 'send_email':
+        elif client_request == 'send_email':
             send_email(parameters, sender_client_socket)
-        elif parameters[0] == 'change_password':
+        elif client_request == 'change_password':
             change_password(parameters, sender_client_socket)
-        elif parameters[0] == 'send_message':
+        elif client_request == 'send_message':
             send_message(parameters, sender_client_socket)
-        elif parameters[0] == 'join_room':
+        elif client_request == 'join_room':
             join_room(parameters, sender_client_socket)
-        elif parameters[0] == 'change_account_from_room':
-            sending_to_client(sender_client_socket, ['exit room'])
+        elif client_request == 'change_account_from_room':
             change_account(parameters, sender_client_socket)
-        elif parameters[0] == 'change_account_from_menu':
+        elif client_request == 'change_account_from_menu':
             user_exit(sender_client_socket)
-        elif parameters[0] == 'exit_room':
-            sending_to_client(sender_client_socket, ['exit room'])
-            user_exit(sender_client_socket)
+        elif client_request == 'exit_room':
+            change_room(sender_client_socket, parameters)
         requests.remove(current_request)
 
 
@@ -352,6 +395,8 @@ def main():
         for current_socket in rlist:
             if current_socket is server_socket:
                 (new_socket, address) = server_socket.accept()
+
+                # sending and geting the keys
                 private_key, public_key_for_client = generate_keys()
                 public_key = new_socket.recv(1024)
                 public_key = pickle.loads(public_key)
@@ -359,6 +404,7 @@ def main():
                 new_socket.send(public_key_for_client)
                 decryption_keys[new_socket] = private_key
                 encryption_keys[new_socket] = public_key
+
                 open_client_sockets.append(new_socket)
             else:
                 try:
