@@ -1,3 +1,6 @@
+# Lerner Aviv
+# Chat - server
+
 import socket
 import select
 import sqlite3
@@ -32,7 +35,7 @@ decryption_keys = {}
 
 def generate_keys():
     # RSA modulus length must be a multiple of 256 and >= 1024
-    modulus_length = 256*4 # use larger value in production
+    modulus_length = 256 * 4  # use larger value in production
     private_key = RSA.generate(modulus_length, Random.new().read)
     public_key = private_key.publickey()
     return private_key, public_key
@@ -40,7 +43,7 @@ def generate_keys():
 
 def encrypt_message(a_message, public_key):
     encrypted_msg = public_key.encrypt(a_message, 32)[0]
-    encoded_encrypted_msg = base64.b64encode(encrypted_msg) # base64 encoded strings are database friendly
+    encoded_encrypted_msg = base64.b64encode(encrypted_msg)  # base64 encoded strings are database friendly
     return encoded_encrypted_msg
 
 
@@ -101,7 +104,6 @@ def get_room_by_username(username):
 
 
 def user_exit(user_socket):
-
     username = get_username_by_socket(user_socket)
     if not username:
         return
@@ -128,10 +130,13 @@ def login(parameters, server_socket):
     username, password = parameters[1:]
     connection = sqlite3.connect('tblUsers.db')
     cursor = connection.cursor()
+    # Create table
+    cursor.execute(
+        '''CREATE TABLE IF NOT EXISTS tblUsers (usrNickName TEXT, usrPWD TEXT, usrFirstName TEXT, usrLastName TEXT, usrBDate TEXT, usrEmail TEXT, usrPicID TEXT)''')
     params = (username,)
     cursor.execute("SELECT usrPWD FROM tblUsers WHERE usrNickName = ?", params)
     user_password_from_db = cursor.fetchone()
-    for (server_socket, username_in_list) in users_in_chat:
+    for (socket_in_list, username_in_list) in users_in_chat:
         if username_in_list == username:
             validate = 'False'
             error_msg = 'you are already logged in'
@@ -163,13 +168,13 @@ def register(parameters, server_socket):
 
     if len(username) < 5:
         error_msg = "Username should contain\nat least 5 letters"
-
     elif len(first_name) < 2:
         error_msg = "First name must contain\nat least 2 letters"
     elif len(last_name) < 2:
         error_msg = "Last name must contain\nat least 2 letters"
     elif int(birthday) > 2004:
         error_msg = "you have to be\nat least 14 years old"
+
     else:
         validate = "True"
         connection = sqlite3.connect('tblUsers.db')
@@ -230,9 +235,7 @@ def send_email(parameters, server_socket):
 
 
 def change_password(parameters, server_socket):
-
     username, new_password = parameters[1:]
-
 
     connection = sqlite3.connect('tblUsers.db')
     cursor = connection.cursor()
@@ -303,6 +306,7 @@ def change_account(parameters, sender_client_socket):
     room_list.pop(username_index)
 
     send_message_to_all_users_in_room(room_to_send, ['update_users'] + room_list)
+
 
 # Reference the request to its purpose
 def handle_request(wlist, requests):
