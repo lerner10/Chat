@@ -3,68 +3,91 @@
 
 from Tkinter import *
 import socket
+import pickle  # Module for turning an instance to a string and the opposite
+
+# Modules for encryption
 from Crypto.Hash import SHA
 from Crypto import Random
 from Crypto.PublicKey import RSA
 import base64
-import pickle
 
-# The dimensions of the windows
 from threading import Thread, Event
 
 SCREEN_SETTINGS = "607x530+400+100"
-# The Title of the windows
 SCREEN_TITLE = "Chat"
 SCREEN_COLOUR = "dodger blue"
 SPECIAL_SIGN = "^"
+
 PORT_NUMBER = 8820
 BUFFER_SIZE = 1024
+
 login_screen = None
 register_screen = None
 forgot_password_screen = None
 join_room_screen = None
 room_screen = None
+
 my_socket = None
+
 code_for_reset_password = ''
+picture = ''
+
 private_key = None
 public_key = None
-stop_thread = Event()
+
+stop_thread = Event()  # for stopping the thread
+
 USER_PICTURE_X_START = 2
 USER_PICTURE_Y_START = 2
 
 
+# Generate a public and a private key
 def generate_keys():
-    # RSA modulus length must be a multiple of 256 and >= 1024
-    modulus_length = 256*4  # use larger value in production
+    modulus_length = 256 * 4
     private_key = RSA.generate(modulus_length, Random.new().read)
     public_key = private_key.publickey()
     return private_key, public_key
 
 
-def encrypt_message(a_message ,public_key):
+# Encrypt a string using a public key
+def encrypt_message(a_message, public_key):
     encrypted_msg = public_key.encrypt(a_message, 32)[0]
     encoded_encrypted_msg = base64.b64encode(encrypted_msg)  # base64 encoded strings are database friendly
     return encoded_encrypted_msg
 
 
-def decrypt_message(encoded_encrypted_msg, privatekey):
+# Decrypt a string using a private key
+def decrypt_message(encoded_encrypted_msg, private_key):
     decoded_encrypted_msg = base64.b64decode(encoded_encrypted_msg)
-    decoded_decrypted_msg = privatekey.decrypt(decoded_encrypted_msg)
+    decoded_decrypted_msg = private_key.decrypt(decoded_encrypted_msg)
     return decoded_decrypted_msg
 
 
+# Gets a list of parameters and sends them to the server as a string
+def sending_to_server(parameters):
+    data = ""
+    for parameter in parameters:
+        data += parameter + SPECIAL_SIGN
+    print "sending to the server before encryption: " + data
+    data = encrypt_message(data, public_key)
+    print "sending to the server after encryption: " + data
+    my_socket.send(data)
+
+
+# Dycripting the string got from the server and turning it to a list
 def response_to_parameters(response):
     print 'got from server before decryption: ' + response
     response = decrypt_message(response, private_key)
     print 'got from server after decryption: ' + response
     parameters = []
-    num_of_parameters = response.count("^")
+    num_of_parameters = response.count(SPECIAL_SIGN)
     for x in range(num_of_parameters):
-        parameters.append(response[:response.index("^")])
-        response = response[response.index("^") + 1:]
+        parameters.append(response[:response.index(SPECIAL_SIGN)])
+        response = response[response.index(SPECIAL_SIGN) + 1:]
     return parameters
 
 
+# Hashing the password
 def get_hashed_password(password):
     h = SHA.new()
     h.update(password)
@@ -82,11 +105,9 @@ def connecting_to_server():
         print 'connected to server'
         private_key, public_key_for_server = generate_keys()
         public_key_for_server = pickle.dumps(public_key_for_server)
-        my_socket.send(public_key_for_server)
-        public_key = my_socket.recv(1024)
+        my_socket.send(public_key_for_server)  # sending to the server the client public key
+        public_key = my_socket.recv(1024)  # getting from the server the server public key
         public_key = pickle.loads(public_key)
-
-
     except:
         print 'no server to connect'
         quit()
@@ -94,7 +115,7 @@ def connecting_to_server():
 
 # Closing the last open window
 def destroying_last_window():
-    global  stop_thread
+    global stop_thread
     global login_screen
     global register_screen
     global join_room_screen
@@ -119,22 +140,8 @@ def destroying_last_window():
                         pass
 
 
-# Gets a list of parameters and sends them to the server as a string
-def sending_to_server(parameters):
-    data = ""
-    for parameter in parameters:
-        data += parameter + SPECIAL_SIGN
-    print "sending to the server before encryption: " + data
-    data = encrypt_message(data, public_key)
-    print "sending to the server after encryption: " + data
-    my_socket.send(data)
-
-
 # Open the login window
 def login_window():
-    def exit():
-        login_screen.destroy()
-
     # Login command
     def login(parameters):
         username = parameters[1]
@@ -202,9 +209,7 @@ def login_window():
 
 # Open the forgot password window
 def forgot_password_window():
-    def exit():
-        forgot_password_screen.destroy()
-
+    # sending the server the name of the username
     def send_email(parameters):
         global code_for_reset_password
         sending_to_server(parameters)
@@ -224,6 +229,7 @@ def forgot_password_window():
             etr_code.place(x=70, y=265)
             btn_confirm_code.place(x=70, y=295)
 
+    # sending the server the code
     def confirm_code(confirm_code):
         global code_for_reset_password
         lbl_change_password.place(x=70, y=340)
@@ -238,6 +244,7 @@ def forgot_password_window():
         else:
             lbl_change_password.configure(text='The code is incorrect')
 
+    # sending the server the new password
     def change_password(parameters):
         error_msg = ''
         password = parameters[2]
@@ -301,12 +308,9 @@ def forgot_password_window():
     btn_exit = Button(forgot_password_screen, text="Exit", font="arial 12", command=exit)
     btn_exit.place(x=510, y=450)
 
-picture = ''
+
 # Open the register window
 def registration_window():
-    def exit():
-        register_screen.destroy()
-
     # Register command
     def register(parameters):
         password = parameters[2]
@@ -339,6 +343,7 @@ def registration_window():
             else:
                 login_window()
 
+    # if user chooses the Arthur picture
     def arthur_picture():
         global picture
         picture = 'arthur.gif'
@@ -346,6 +351,7 @@ def registration_window():
         btn_cosmo_picture.configure(state=NORMAL)
         btn_spongebob_picture.configure(state=NORMAL)
 
+    # if user chooses the Spongebob picture
     def spongebob_picture():
         global picture
         picture = 'spongebob.gif'
@@ -353,6 +359,7 @@ def registration_window():
         btn_cosmo_picture.configure(state=NORMAL)
         btn_spongebob_picture.configure(state=DISABLED)
 
+    # if user chooses the Cosmo picture
     def cosmo_picture():
         global picture
         picture = 'cosmo.gif'
@@ -449,17 +456,17 @@ def registration_window():
     register_screen.mainloop()
 
 
-# Open the menu window
+# Open the join to room window
 def join_room_window(username):
-    def exit():
-        join_room_screen.destroy()
+    global join_room_screen
 
+    # if user wants to change account
     def change_account():
         sending_to_server(["change_account_from_menu"])
         login_window()
 
     destroying_last_window()
-    global join_room_screen
+
     join_room_screen = Tk()
 
     photo_sport = PhotoImage(file="images/sport.gif")
@@ -500,18 +507,17 @@ def join_room_window(username):
     join_room_screen.mainloop()
 
 
-
-
 # Open room window
 def room_window(username, type_of_room):
     global stop_thread
     global room_screen
 
+    # send message ing the chat to all users
     def send_message(parameters):
         etr_message.delete(0, 'end')
         sending_to_server(parameters)
 
-    # Handles receiving of messages
+    # Handles receiving of messages or updating the users list
     def receive():
         def handle_mesage_from_server(message):
             global room_screen
@@ -532,9 +538,8 @@ def room_window(username, type_of_room):
             elif message_type == 'user_exit':
                 pass
 
-        while True:
+        while True:  # thread loop
             try:
-                # msg = my_socket.recv(BUFFER_SIZE).decode("utf8")
                 message = my_socket.recv(BUFFER_SIZE)
                 message_parameters = response_to_parameters(message)
                 if message_parameters[0] == 'exit room':
@@ -545,17 +550,17 @@ def room_window(username, type_of_room):
 
     destroying_last_window()
 
+    # if user wants to change account
     def change_account():
         sending_to_server(["change_account_from_room", username, type_of_room])
         login_window()
 
-
-    def exit_room(username):
-        sending_to_server(["exit_room"])
+    # if user wants to go back to the join room window
+    def exit_room(username, type_of_room):
+        sending_to_server(["exit_room", username, type_of_room])
         join_room_window(username)
 
     room_screen = Tk()
-
 
     message = StringVar()
 
@@ -591,7 +596,7 @@ def room_window(username, type_of_room):
     lbx_users.config(yscrollcommand=slb_users.set)
     slb_users.config(command=lbx_users.yview)
 
-    btn_back = Button(room_screen, text="Back", font='arial 12', command=lambda: exit_room(username))
+    btn_back = Button(room_screen, text="Back", font='arial 12', command=lambda: exit_room(username, type_of_room))
     btn_back.place(x=70, y=450)
 
     btn_change_account = Button(room_screen, text="Change account", font='arial 12', command=change_account)
@@ -614,6 +619,7 @@ def room_window(username, type_of_room):
 def main():
     connecting_to_server()
     login_window()
+
 
 if __name__ == "__main__":
     main()
