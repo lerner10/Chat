@@ -1,3 +1,6 @@
+# Lerner Aviv
+# Chat - client
+
 from Tkinter import *
 import socket
 from Crypto.Hash import SHA
@@ -5,6 +8,7 @@ from Crypto import Random
 from Crypto.PublicKey import RSA
 import base64
 import pickle
+
 # The dimensions of the windows
 from threading import Thread, Event
 
